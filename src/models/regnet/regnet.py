@@ -5,6 +5,7 @@ import src.trainer.stats as trainer_stats  # Trainer statistics module
 
 # === import necessary external modules ===
 from typing import Any, Dict, Optional, Tuple
+import time
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -27,10 +28,42 @@ class RegNetTrainer(trainer.SimpleTrainer):
     cross-entropy loss against class labels.
     """
 
+    def __init__(self, max_duration_seconds: Optional[float] = None, **kwargs):
+        super().__init__(**kwargs)
+        self.max_duration_seconds = max_duration_seconds
+
     def forward(self, i: int, batch: Any, model_kwargs: Dict[str, Any]) -> torch.Tensor:
         self.optimizer.zero_grad()
         outputs = self.model(batch["image"])
         return nn.functional.cross_entropy(outputs, batch["label"])
+
+    def train(self, model_kwargs: Optional[Dict[str, Any]]) -> None:
+        import tqdm.auto
+        if self.max_duration_seconds is None:
+            return super().train(model_kwargs)
+
+        if model_kwargs is None:
+            model_kwargs = {}
+
+        progress_bar = tqdm.auto.tqdm(desc="loss: N/A")
+        deadline = time.monotonic() + self.max_duration_seconds
+
+        self.stats.start_train()
+        i = 0
+        while time.monotonic() < deadline:
+            for batch in self.loader:
+                if time.monotonic() >= deadline:
+                    break
+                self.stats.start_step()
+                loss, descr = self.step(i, batch, model_kwargs)
+                self.stats.stop_step()
+                self.stats.log_loss(loss)
+                self.stats.log_step()
+                progress_bar.update(1)
+                i += 1
+        self.stats.stop_train()
+        progress_bar.close()
+        self.stats.log_stats()
 
 
 def process_dataset(dataset: data.Dataset) -> data.Dataset:
@@ -82,6 +115,7 @@ def simple_trainer(conf: config.Config, model: nn.Module, dataset: data.Dataset,
         lr_scheduler=scheduler,
         device=device,
         stats=trainer_stats.init_from_conf(conf=conf, device=device, num_train_steps=len(loader)),
+        max_duration_seconds=conf.model_configs.regnet.max_duration_seconds if conf.model_configs.regnet.max_duration_seconds > 0 else None,
     ), None
 
 
