@@ -42,22 +42,24 @@ class RegNetTrainer(trainer.SimpleTrainer):
             model_kwargs = {}
         batch = self.process_batch(i, batch)
 
-        torch.cuda.synchronize()
+        sync = torch.cuda.is_available()
+
+        if sync: torch.cuda.synchronize()
         self.stats.start_forward()
         loss = self.forward(i, batch, model_kwargs)
-        torch.cuda.synchronize()
+        if sync: torch.cuda.synchronize()
         self.stats.stop_forward()
 
-        torch.cuda.synchronize()
+        if sync: torch.cuda.synchronize()
         self.stats.start_backward()
         self.backward(i, loss)
-        torch.cuda.synchronize()
+        if sync: torch.cuda.synchronize()
         self.stats.stop_backward()
 
-        torch.cuda.synchronize()
+        if sync: torch.cuda.synchronize()
         self.stats.start_optimizer_step()
         self.optimizer_step(i)
-        torch.cuda.synchronize()
+        if sync: torch.cuda.synchronize()
         self.stats.stop_optimizer_step()
 
         return loss, None
