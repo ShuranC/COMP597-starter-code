@@ -37,6 +37,31 @@ class RegNetTrainer(trainer.SimpleTrainer):
         outputs = self.model(batch["image"])
         return nn.functional.cross_entropy(outputs, batch["label"])
 
+    def step(self, i: int, batch: Any, model_kwargs: Dict[str, Any]) -> torch.Tensor:
+        if model_kwargs is None:
+            model_kwargs = {}
+        batch = self.process_batch(i, batch)
+
+        torch.cuda.synchronize()
+        self.stats.start_forward()
+        loss = self.forward(i, batch, model_kwargs)
+        torch.cuda.synchronize()
+        self.stats.stop_forward()
+
+        torch.cuda.synchronize()
+        self.stats.start_backward()
+        self.backward(i, loss)
+        torch.cuda.synchronize()
+        self.stats.stop_backward()
+
+        torch.cuda.synchronize()
+        self.stats.start_optimizer_step()
+        self.optimizer_step(i)
+        torch.cuda.synchronize()
+        self.stats.stop_optimizer_step()
+
+        return loss, None
+
     def train(self, model_kwargs: Optional[Dict[str, Any]]) -> None:
         import tqdm.auto
         if self.max_duration_seconds is None:
